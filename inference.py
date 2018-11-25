@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
+import datetime
+import os
 import pickle
 
+import numpy as np
+from sklearn.model_selection import train_test_split
 import tensorflow as tf
 
 title_count, title_set, genres2int, features, targets_values, ratings, users, movies, data = pickle.load(
@@ -59,12 +63,12 @@ def user_feature_network(uid, user_gender, user_age, user_job, dropout_keep_prob
         gender_embed_layer = tf.nn.embedding_lookup(gender_embed_matrix, user_gender, name='gender_embed_layer')
 
     with tf.variable_scope('user_age_embed_layer'):
-        age_embed_matrix = tf.get_variable('age_embed_matrix', [gender_count, embed_dim // 2],
+        age_embed_matrix = tf.get_variable('age_embed_matrix', [age_count, embed_dim // 2],
                                            initializer=tf.truncated_normal_initializer(stddev=0.1))
         age_embed_layer = tf.nn.embedding_lookup(age_embed_matrix, user_age, name='age_embed_layer')
 
     with tf.variable_scope('user_job_embed_layer'):
-        job_embed_matrix = tf.get_variable('job_embed_matrix', [gender_count, embed_dim // 2],
+        job_embed_matrix = tf.get_variable('job_embed_matrix', [job_count, embed_dim // 2],
                                            initializer=tf.truncated_normal_initializer(stddev=0.1))
         job_embed_layer = tf.nn.embedding_lookup(job_embed_matrix, user_job, name='job_embed_layer')
 
@@ -169,8 +173,21 @@ def movie_feature_network(movie_id_embed_layer, movie_categories_embed_layer, dr
     return movie_combine_layer, movie_combine_layer_flat
 
 
-def train(uid, user_gender, user_age, user_job, movie_id, movie_categories, movie_titles, targets, lr,
-          dropout_keep_prob):
+def train():
+    # uid, user_gender, user_age, user_job, movie_id, movie_categories, movie_titles, targets, lr,dropout_keep_prob
+    with tf.variable_scope('input'):
+        uid = tf.placeholder(tf.int32, [None, 1], name='uid')
+        user_gender = tf.placeholder(tf.int32, [None, 1], name='user_gender')
+        user_age = tf.placeholder(tf.int32, [None, 1], name='user_age')
+        user_job = tf.placeholder(tf.int32, [None, 1], name='user_job')
+
+        movie_id = tf.placeholder(tf.int32, [None, 1], name='movie_id')
+        movie_categories = tf.placeholder(tf.int32, [None, 18], name='movie_categories')
+        movie_titles = tf.placeholder(tf.int32, [None, 15], name='movie_titles')
+        targets = tf.placeholder(tf.int32, [None, 1], name='targets')
+        lr = tf.placeholder(tf.float32, name='learning_rate')
+        dropout_keep_prob = tf.placeholder(tf.float32, name='dropout_keep_prob')
+
     # 得到用户特征
     user_combine_layer_flat = user_feature_network(uid, user_gender, user_age, user_job, dropout_keep_prob)
     # 获取电影ID和类别嵌入向量
@@ -193,21 +210,74 @@ def train(uid, user_gender, user_age, user_job, movie_id, movie_categories, movi
         loss = tf.reduce_mean(cost)
         global_step = tf.Variable(0, name="global_step", trainable=False)
         # 优化损失
-        train_op = tf.train.AdamOptimizer(lr).minimize(loss)  # cost
+        train_op = tf.train.AdamOptimizer(lr).minimize(loss,global_step=global_step)  # cost
+
+    with tf.name_scope("params"):
+        for variable in tf.trainable_variables():
+            name = variable.name.split(':')[0]
+            tf.summary.histogram(name, variable)
+            mean = tf.reduce_mean(variable)
+            tf.summary.scalar("mean/" + name, mean)
+            stddev = tf.sqrt(tf.reduce_mean(tf.square(variable - mean)))
+            tf.summary.scalar("stddev/" + name, stddev)
+    summaries_merged = tf.summary.merge_all()
+    saver = tf.train.Saver()
+
+    train_X, test_X, train_y, test_y = train_test_split(features,
+                                                        targets_values,
+                                                        test_size=0.2,
+                                                        random_state=0)
+
+    with tf.Session() as sess:
+        train_summary_dir = os.path.join('./data', "summaries", "train")
+        train_summary_writer = tf.summary.FileWriter(train_summary_dir, sess.graph)
+
+        sess.run(tf.global_variables_initializer())
+        for epoch_i in range(num_epochs):
+            train_batches = get_batches(train_X, train_y, batch_size)
+            test_batches = get_batches(test_X, test_y, batch_size)
+
+            # 训练的迭代，保存训练损失
+            for batch_i in range(len(train_X) // batch_size):
+                x, y = next(train_batches)
+
+                categories = np.zeros([batch_size, 18])
+                for i in range(batch_size):
+                    categories[i] = x.take(6, 1)[i]
+
+                titles = np.zeros([batch_size, sentences_size])
+                for i in range(batch_size):
+                    titles[i] = x.take(5, 1)[i]
+
+                feed = {
+                    uid: np.reshape(x.take(0, 1), [batch_size, 1]),
+                    user_gender: np.reshape(x.take(2, 1), [batch_size, 1]),
+                    user_age: np.reshape(x.take(3, 1), [batch_size, 1]),
+                    user_job: np.reshape(x.take(4, 1), [batch_size, 1]),
+                    movie_id: np.reshape(x.take(1, 1), [batch_size, 1]),
+                    movie_categories: categories,  # x.take(6,1)
+                    movie_titles: titles,  # x.take(5,1)
+                    targets: np.reshape(y, [batch_size, 1]),
+                    dropout_keep_prob: dropout_keep,  # dropout_keep
+                    lr: learning_rate}
+
+                step, train_loss, summaries, _ = sess.run([global_step, loss, summaries_merged, train_op], feed)  # cost
+                train_summary_writer.add_summary(summaries, step)  #
+
+                time_str = datetime.datetime.now().isoformat()
+                print('{}: Epoch {:>3} Batch {:>4}/{}   train_loss = {:.3f}'.format(
+                    time_str,
+                    epoch_i,
+                    batch_i,
+                    (len(train_X) // batch_size),
+                    train_loss))
+
+
+def get_batches(Xs, ys, batch_size):
+    for start in range(0, len(Xs), batch_size):
+        end = min(start + batch_size, len(Xs))
+        yield Xs[start:end], ys[start:end]
 
 
 if __name__ == '__main__':
-    with tf.variable_scope('input'):
-        uid = tf.placeholder(tf.int32, [None, 1], name='uid')
-        user_gender = tf.placeholder(tf.int32, [None, 1], name='user_gender')
-        user_age = tf.placeholder(tf.int32, [None, 1], name='user_age')
-        user_job = tf.placeholder(tf.int32, [None, 1], name='user_job')
-
-        movie_id = tf.placeholder(tf.int32, [None, 1], name='movie_id')
-        movie_categories = tf.placeholder(tf.int32, [None, 18], name='movie_categories')
-        movie_titles = tf.placeholder(tf.int32, [None, 15], name='movie_titles')
-        targets = tf.placeholder(tf.int32, [None, 1], name='targets')
-        lr = tf.placeholder(tf.float32, name='learning_rate')
-        dropout_keep_prob = tf.placeholder(tf.float32, name='dropout_keep_prob')
-    for ii in tf.trainable_variables():
-        print(ii)
+    train()

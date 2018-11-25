@@ -153,6 +153,3 @@ title_count, title_set, genres2int, features, targets_values, ratings, users, mo
 
 pickle.dump((title_count, title_set, genres2int, features, targets_values, ratings, users, movies, data),
             open('./data/preprocess.p', 'wb'))
-#
-# title_count, title_set, genres2int, features, targets_values, ratings, users, movies, data, movies_orig, users_orig = pickle.load(
-#     open('preprocess.p', mode='rb'))
