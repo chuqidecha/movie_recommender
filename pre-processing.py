@@ -87,7 +87,6 @@ def load_data(dataset_zip):
         with zf.open('ml-1m/movies.dat') as movies_raw_data:
             movies_title = ['MovieID', 'Title', 'Genres']
             movies = pd.read_table(movies_raw_data, sep=b'::', header=None, names=movies_title, engine='python')
-            movies_orig = movies.values
             # 将Title中的年份去掉
             pattern = re.compile(b'^(.*)\((\d+)\)$')
 
