@@ -7,7 +7,9 @@ import re
 import zipfile
 from urllib.request import urlretrieve
 
+import numpy as np
 import pandas as pd
+from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 
@@ -65,6 +67,31 @@ def download_ml_1m(save_path):
 dataset_zip = download_ml_1m('./data')
 
 
+# 将电影类型使用multi-hot编码
+def genres_multi_hot(genre_int_map):
+    def helper(genres):
+        genre_int_list = [genre_int_map[genre] for genre in genres.split(b'|')]
+        multi_hot = np.zeros(len(genre_int_map))
+        multi_hot[genre_int_list] = 1
+        return multi_hot
+
+    return helper
+
+
+# 将电影Title转成长度为15的数字列表，如果长度小于15则用0填充，大于15则截断
+def title_encode(words_int_map):
+    def helper(title):
+        title_words = [words_int_map[word] for word in title.split()]
+        if len(title_words) > 15:
+            return np.array(title[:15])
+        else:
+            title_vector = np.zeros(15)
+            title_vector[:len(title_words)] = title_words
+            return title_vector
+
+    return helper
+
+
 def load_data(dataset_zip):
     """
     Load Dataset from Zip File
@@ -78,10 +105,10 @@ def load_data(dataset_zip):
 
             # 改变User数据中性别和年龄
             gender_map = {b'F': 0, b'M': 1}
-            users['Gender'] = users['Gender'].map(gender_map)
+            users['GenderIndex'] = users['Gender'].map(gender_map)
 
             age_map = {val: ii for ii, val in enumerate(set(users['Age']))}
-            users['Age'] = users['Age'].map(age_map)
+            users['AgeIndex'] = users['Age'].map(age_map)
 
         # 读取Movie数据集
         with zf.open('ml-1m/movies.dat') as movies_raw_data:
@@ -90,44 +117,24 @@ def load_data(dataset_zip):
             # 将Title中的年份去掉
             pattern = re.compile(b'^(.*)\((\d+)\)$')
 
-            title_map = {val: pattern.match(val).group(1) for ii, val in enumerate(set(movies['Title']))}
-            movies['Title'] = movies['Title'].map(title_map)
-
+            movies['TitleWithoutYear'] = movies['Title'].map(lambda x: pattern.match(x).group(1))
             # 电影类型转数字字典
             genres_set = set()
             for val in movies['Genres'].str.split(b'|'):
                 genres_set.update(val)
 
-            genres_set.add('<PAD>')
-            genres2int = {val: ii for ii, val in enumerate(genres_set)}
+            genre_int_map = {val: ii for ii, val in enumerate(genres_set)}
 
-            # 将电影类型转成等长数字列表，长度是18
-            genres_map = {val: [genres2int[row] for row in val.split(b'|')] for ii, val in
-                          enumerate(set(movies['Genres']))}
-
-            for key in genres_map:
-                for cnt in range(max(genres2int.values()) - len(genres_map[key])):
-                    genres_map[key].insert(len(genres_map[key]) + cnt, genres2int['<PAD>'])
-
-            movies['Genres'] = movies['Genres'].map(genres_map)
+            movies['GenresMultiHot'] = movies['Genres'].map(genres_multi_hot(genre_int_map))
 
             # 电影Title转数字字典
-            title_set = set()
-            for val in movies['Title'].str.split():
-                title_set.update(val)
+            words_set = set()
+            for val in movies['TitleWithoutYear'].str.split():
+                words_set.update(val)
 
-            title_set.add('<PAD>')
-            title2int = {val: ii for ii, val in enumerate(title_set)}
+            words_int_map = {val: ii for ii, val in enumerate(words_set, start=1)}
 
-            # 将电影Title转成等长数字列表，长度是15
-            title_count = 15
-            title_map = {val: [title2int[row] for row in val.split()] for ii, val in enumerate(set(movies['Title']))}
-
-            for key in title_map:
-                for cnt in range(title_count - len(title_map[key])):
-                    title_map[key].insert(len(title_map[key]) + cnt, title2int['<PAD>'])
-
-            movies['Title'] = movies['Title'].map(title_map)
+            movies['TitleIndex'] = movies['TitleWithoutYear'].map(title_encode(words_int_map))
 
         # 读取评分数据集
         with zf.open('ml-1m/ratings.dat') as ratings_raw_data:
@@ -139,16 +146,16 @@ def load_data(dataset_zip):
     data = pd.merge(pd.merge(ratings, users), movies)
 
     # 将数据分成X和y两张表
-    target_fields = ['ratings']
-    features_pd, targets_pd = data.drop(target_fields, axis=1), data[target_fields]
+    features, targets = data.drop(['ratings'], axis=1), data[['ratings']]
 
-    features = features_pd.values
-    targets_values = targets_pd.values
-
-    return title_count, title_set, genres2int, features, targets_values, ratings, users, movies, data
+    return features, targets, age_map,gender_map,genre_int_map,words_int_map
 
 
-title_count, title_set, genres2int, features, targets_values, ratings, users, movies, data = load_data(dataset_zip)
+features, targets, age_map, gender_map, genre_int_map, words_int_map = load_data(dataset_zip)
 
-pickle.dump((title_count, title_set, genres2int, features, targets_values, ratings, users, movies, data),
-            open('./data/preprocess.p', 'wb'))
+pickle.dump((features, targets, age_map, gender_map, genre_int_map, words_int_map),open('./data/preprocess.p', 'wb'))
+
+train_X, test_X, train_y, test_y = train_test_split(features,
+                                                    targets,
+                                                    test_size=0.2,
+                                                    random_state=0)
