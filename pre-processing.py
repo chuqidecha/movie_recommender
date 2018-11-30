@@ -64,11 +64,13 @@ def download_ml_1m(save_path):
     return save_pathname
 
 
-dataset_zip = download_ml_1m('./data')
-
-
-# 将电影类型使用multi-hot编码
 def genres_multi_hot(genre_int_map):
+    '''
+    电影类型使用multi-hot编码
+    :param genre_int_map:
+    :return:
+    '''
+
     def helper(genres):
         genre_int_list = [genre_int_map[genre] for genre in genres.split(b'|')]
         multi_hot = np.zeros(len(genre_int_map))
@@ -78,8 +80,13 @@ def genres_multi_hot(genre_int_map):
     return helper
 
 
-# 将电影Title转成长度为15的数字列表，如果长度小于15则用0填充，大于15则截断
 def title_encode(words_int_map):
+    '''
+    将电影Title转成长度为15的数字列表，如果长度小于15则用0填充，大于15则截断
+    :param words_int_map:
+    :return:
+    '''
+
     def helper(title):
         title_words = [words_int_map[word] for word in title.split()]
         if len(title_words) > 15:
@@ -148,14 +155,16 @@ def load_data(dataset_zip):
     # 将数据分成X和y两张表
     features, targets = data.drop(['ratings'], axis=1), data[['ratings']]
 
-    return features, targets, age_map,gender_map,genre_int_map,words_int_map
+    return features, targets, age_map, gender_map, genre_int_map, words_int_map
 
 
-features, targets, age_map, gender_map, genre_int_map, words_int_map = load_data(dataset_zip)
+if __name__ == '__main__':
+    dataset_zip = download_ml_1m('./data')
+    features, targets, age_map, gender_map, genre_int_map, words_int_map = load_data(dataset_zip)
 
-pickle.dump((features, targets, age_map, gender_map, genre_int_map, words_int_map),open('./data/preprocess.p', 'wb'))
+    with open('./data/meta.p', 'wb') as meta:
+        pickle.dump((age_map, gender_map, genre_int_map, words_int_map), meta)
 
-train_X, test_X, train_y, test_y = train_test_split(features,
-                                                    targets,
-                                                    test_size=0.2,
-                                                    random_state=0)
+    train_X, test_X, train_y, test_y = train_test_split(features, targets, test_size=0.2, random_state=0)
+    with open('./data/data.p', 'wb') as data:
+        pickle.dump((train_X, train_y, test_X, test_y), data)
