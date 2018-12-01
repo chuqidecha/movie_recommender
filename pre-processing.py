@@ -155,15 +155,21 @@ def load_data(dataset_zip):
     # 将数据分成X和y两张表
     features, targets = data.drop(['ratings'], axis=1), data[['ratings']]
 
-    return features, targets, age_map, gender_map, genre_int_map, words_int_map
+    return features, targets, age_map, gender_map, genre_int_map, words_int_map, users, movies
 
 
 if __name__ == '__main__':
     dataset_zip = download_ml_1m('./data')
-    features, targets, age_map, gender_map, genre_int_map, words_int_map = load_data(dataset_zip)
+    features, targets, age_map, gender_map, genre_int_map, words_int_map, users, movies = load_data(dataset_zip)
 
     with open('./data/meta.p', 'wb') as meta:
         pickle.dump((age_map, gender_map, genre_int_map, words_int_map), meta)
+
+    with open('./data/users.p', 'wb') as meta:
+        pickle.dump(users, meta)
+
+    with open('./data/movies.p', 'wb') as meta:
+        pickle.dump(movies, meta)
 
     train_X, test_X, train_y, test_y = train_test_split(features, targets, test_size=0.2, random_state=0)
     with open('./data/data.p', 'wb') as data:

@@ -7,7 +7,7 @@ from sklearn.utils import shuffle
 
 
 class Dataset(object):
-    def __init__(self, Xs, ys, shuffle=True):
+    def __init__(self, Xs, ys=None, shuffle=True):
         self._Xs = Xs
         self._ys = ys
         self._shuffle = True
@@ -24,22 +24,31 @@ class Dataset(object):
             if self._current == 0:
                 self._index = shuffle(self._index)
 
+        start = self._current
         end = min(self._current + batch_size, self._size)
-        Xs = self._Xs[self._index[self._current:end]]
-        ys = self._ys[self._index[self._current:end]]
         self._current = end
-        return Xs, ys
+
+        Xs = self._Xs[self._index[start:end]]
+        if self._ys is not None:
+            ys = self._ys[self._index[start:end]]
+            return Xs, ys
+        else:
+            return Xs
 
     @property
     def epoch(self):
         return self._epoch
+
+    @property
+    def size(self):
+        return self._size
 
 
 Users = collections.namedtuple('Users', ['id', 'age', 'gender', 'job'])
 Movies = collections.namedtuple('Movies', ['id', 'genres', 'titles', 'title_length'])
 
 
-def decompression_feature(Xs, ys):
+def decompression_feature(Xs):
     bath = len(Xs)
 
     user_id = np.reshape(Xs.take(0, 1), [bath, 1])
@@ -54,7 +63,7 @@ def decompression_feature(Xs, ys):
     movie_title_length = (movie_titles != 0).sum(axis=1)
     movies = Movies(movie_id, movie_genres, movie_titles, movie_title_length)
 
-    return users, movies, ys
+    return users, movies
 
 
 if __name__ == '__main__':

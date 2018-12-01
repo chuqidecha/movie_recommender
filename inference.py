@@ -126,8 +126,8 @@ def movie_title_lstm_layer(movie_titles, movie_title_length, dropout_keep_prob):
     return lstm_output
 
 
-def movie_feature_network(movie_id_embed_layer, movie_genres_embed_layer, movie_title_output_layer,
-                          dropout_keep_prob):
+def movie_feature_network(movie_id, movie_genres, movie_titles, movie_title_length, dropout_keep_prob):
+    movie_id_embed_layer, movie_genres_embed_layer = movie_feature_embed_network(movie_id, movie_genres)
     movie_id_fc_layer = tf.layers.dense(movie_id_embed_layer, EMBED_DIM,
                                         activation=tf.nn.relu,
                                         kernel_regularizer=tf.nn.l2_loss,
@@ -136,12 +136,15 @@ def movie_feature_network(movie_id_embed_layer, movie_genres_embed_layer, movie_
     movie_id_dropout_layer = tf.layers.dropout(movie_id_fc_layer, dropout_keep_prob, name='movie_id_dropout')
 
     movie_genres_fc_layer = tf.layers.dense(movie_genres_embed_layer, EMBED_DIM,
-                                                activation=tf.nn.relu,
-                                                kernel_regularizer=tf.nn.l2_loss,
-                                                kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
-                                                name='movie_categories_fc')
+                                            activation=tf.nn.relu,
+                                            kernel_regularizer=tf.nn.l2_loss,
+                                            kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
+                                            name='movie_categories_fc')
     movie_genres_dropout_layer = tf.layers.dropout(movie_genres_fc_layer, dropout_keep_prob,
-                                                       name='movie_categories_dropout')
+                                                   name='movie_categories_dropout')
+
+    # 获取电影名的特征向量
+    movie_title_output_layer = movie_title_lstm_layer(movie_titles, movie_title_length, dropout_keep_prob)
 
     with tf.name_scope('movie_fc_layer'):
         movie_id_dropout_layer = tf.reduce_sum(movie_id_dropout_layer, 1)
@@ -152,33 +155,25 @@ def movie_feature_network(movie_id_embed_layer, movie_genres_embed_layer, movie_
                                               kernel_regularizer=tf.nn.l2_loss,
                                               kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
                                               name='movie_fc_layer')
-        movie_combine_layer_flat = tf.reshape(movie_combine_layer, [-1, 200])
 
-    return movie_combine_layer_flat
+    return movie_combine_layer
 
 
-def full_network(uid, user_gender, user_age, user_job, movie_id, movie_genres, movie_titles, movie_title_length, dropout_keep_prob):
+def full_network(uid, user_gender, user_age, user_job, movie_id, movie_genres, movie_titles, movie_title_length,
+                 dropout_keep_prob):
     # 得到用户特征
     user_combine_layer_flat = user_feature_network(uid, user_gender, user_age, user_job, dropout_keep_prob)
-    # 获取电影ID和类别嵌入向量
-    movie_id_embed_layer, movie_genres_embed_layer = movie_feature_embed_network(movie_id, movie_genres)
-
-    # 获取电影名的特征向量
-
-    pool_layer_flat = movie_title_lstm_layer(movie_titles,movie_title_length, dropout_keep_prob)  # 得到电影特征
-    movie_combine_layer_flat = movie_feature_network(movie_id_embed_layer,
-                                                     movie_genres_embed_layer,
-                                                     pool_layer_flat,
-                                                     dropout_keep_prob)
-
+    # 获取电影特征
+    movie_combine_layer = movie_feature_network(movie_id, movie_genres, movie_titles, movie_title_length,
+                                                dropout_keep_prob)
     # 将用户特征和电影特征作为输入，经过全连接，输出一个值
     with tf.name_scope('user_movie_fc'):
-        input_layer = tf.concat([user_combine_layer_flat, movie_combine_layer_flat], 1)  # (?, 200)
+        input_layer = tf.concat([user_combine_layer_flat, movie_combine_layer], 1)  # (?, 200)
         predicted = tf.layers.dense(input_layer, 1,
                                     kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
                                     kernel_regularizer=tf.nn.l2_loss,
                                     name='user_movie_fc')
-    return predicted
+    return user_combine_layer_flat, movie_combine_layer, predicted
 
 
 def trainable_variable_summaries():

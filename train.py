@@ -2,7 +2,7 @@
 # @Time     : 11/30/18 10:28 PM
 # @Author   : yinwb
 # @File     : train.py
-import datetime
+import logging
 import os
 import pickle
 
@@ -11,9 +11,16 @@ import tensorflow as tf
 from dataset import Dataset, decompression_feature
 from inference import full_network, trainable_variable_summaries
 
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+
 BATCH_SIZE = 256
-EPCHO = 5
-DROPOUT_PRO = 0.5
+EPOCH = 5
+DROPOUT_PROB = 0.5
+LEARNING_RATE_BASE = 0.01
+LEARNING_RAtE_DECAY = 0.99
+SHOW_LOG_STEPS = 100
+SAVE_MODEL_STEPS = 1000
 
 
 def train(train_X, train_y, save_dir):
@@ -25,19 +32,18 @@ def train(train_X, train_y, save_dir):
     movie_id = tf.placeholder(tf.int32, [None, 1], name='movie_id')
     movie_genres = tf.placeholder(tf.float32, [None, 18], name='movie_categories')
     movie_titles = tf.placeholder(tf.int32, [None, 15], name='movie_titles')
-    movies_title_length = tf.placeholder(tf.float32, [None])
+    movie_title_length = tf.placeholder(tf.float32, [None], name='movie_title_length')
     targets = tf.placeholder(tf.int32, [None, 1], name='targets')
     dropout_keep_prob = tf.placeholder(tf.float32, name='dropout_keep_prob')
 
-    predicted = full_network(user_id, user_gender, user_age, user_job, movie_id,
-                             movie_genres, movie_titles,movies_title_length,
-                             dropout_keep_prob)
+    _, _, predicted = full_network(user_id, user_gender, user_age, user_job, movie_id,
+                                   movie_genres, movie_titles, movie_title_length,
+                                   dropout_keep_prob)
 
     trainable_variable_summaries()
     with tf.name_scope('loss'):
         # MSE损失，将计算值回归到评分
-        cost = tf.losses.mean_squared_error(targets, predicted)
-        loss = tf.reduce_mean(cost)
+        loss = tf.losses.mean_squared_error(targets, predicted)
         tf.summary.scalar('loss', loss)
 
     dataset = Dataset(train_X.values, train_y.values)
@@ -45,14 +51,14 @@ def train(train_X, train_y, save_dir):
 
     global_step = tf.Variable(0, name='global_step', trainable=False)
     learning_rate = tf.train.exponential_decay(
-        0.01,
+        LEARNING_RATE_BASE,
         global_step,
         batch_per_epcho,
-        0.99
+        LEARNING_RAtE_DECAY
     )  # 优化损失
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss, global_step=global_step)  # cost
 
-    saver = tf.train.Saver(max_to_keep=EPCHO)
+    saver = tf.train.Saver(max_to_keep=(batch_per_epcho * EPOCH + SAVE_MODEL_STEPS - 1) // SAVE_MODEL_STEPS)
 
     summaries_merged = tf.summary.merge_all()
 
@@ -61,11 +67,11 @@ def train(train_X, train_y, save_dir):
         train_summary_writer = tf.summary.FileWriter(train_summary_dir, sess.graph)
 
         sess.run(tf.global_variables_initializer())
-        for epoch_i in range(EPCHO):
+        for epoch_i in range(EPOCH):
             # 训练的迭代，保存训练损失
             for batch_i in range(batch_per_epcho):
                 Xs, ys = dataset.next_batch(BATCH_SIZE)
-                users, movies, ys = decompression_feature(Xs, ys)
+                users, movies = decompression_feature(Xs)
 
                 feed = {
                     user_id: users.id,
@@ -75,21 +81,21 @@ def train(train_X, train_y, save_dir):
                     movie_id: movies.id,
                     movie_genres: movies.genres,
                     movie_titles: movies.titles,
-                    movies_title_length: movies.title_length,
+                    movie_title_length: movies.title_length,
                     targets: ys,
-                    dropout_keep_prob: DROPOUT_PRO}  # dropout_keep
+                    dropout_keep_prob: DROPOUT_PROB}  # dropout_keep
 
-                step, train_loss, summaries, _ = sess.run([global_step, loss, summaries_merged, train_op], feed)  # cost
+                step, train_loss, summaries, _ = sess.run([global_step, loss, summaries_merged, train_op], feed)
                 train_summary_writer.add_summary(summaries, step)
 
-                time_str = datetime.datetime.now().isoformat()
-                print('{}: Epoch {:>3} Batch {:>4}/{}   train_loss = {:.3f}'.format(
-                    time_str,
-                    epoch_i,
-                    batch_i,
-                    (len(train_X) // BATCH_SIZE),
-                    train_loss))
-            saver.save(sess, save_dir)
+                if step % SHOW_LOG_STEPS == 0:
+                    show_message = 'Epoch {:>3} Batch {:>4}/{}   train_loss = {:.3f}'.format(epoch_i, step,
+                                                                                             batch_per_epcho,
+                                                                                             train_loss)
+                    logging.info(show_message)
+                if step % SAVE_MODEL_STEPS == 0:
+                    saver.save(sess, save_dir, global_step=global_step)
+        saver.save(sess, save_dir, global_step=global_step)
 
 
 if __name__ == '__main__':
@@ -97,4 +103,4 @@ if __name__ == '__main__':
         open('./data/preprocess.p', mode='rb'))
     with open('./data/data.p', 'rb') as data:
         train_X, train_y, _, _ = pickle.load(data, encoding='utf-8')
-    train(train_X, train_y, './data/mode')
+    train(train_X, train_y, './data/model/model')
