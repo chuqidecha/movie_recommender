@@ -1,7 +1,4 @@
-# -*- coding: utf8 -*-
-# @Time     : 12/1/18 2:05 PM
-# @Author   : yinwb
-# @File     : features.py
+# -*- coding: utf-8 -*-
 
 import logging
 import pickle
@@ -9,7 +6,7 @@ import pickle
 import numpy as np
 import tensorflow as tf
 
-from dataset import Dataset, decompression_feature
+from dataset import Dataset
 from inference import full_network
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -34,6 +31,10 @@ def main(model_path):
     user_feature, movie_feature, _ = full_network(user_id, user_gender, user_age, user_job, movie_id,
                                                   movie_genres, movie_titles, movie_title_length,
                                                   dropout_keep_prob)
+
+    with tf.variable_scope('user_movie_fc', reuse=True):
+        user_movie_fc_kernel = tf.get_variable('kernel')
+        user_movie_fc_bias = tf.get_variable('bias')
 
     with open('./data/users.p', 'rb') as users:
         user_Xs = pickle.load(users)
@@ -61,6 +62,8 @@ def main(model_path):
             }
             feature = sess.run(user_feature, feed_dict=feed)
             user_features.update({key: value for (key, value) in zip(data.take(0, 1), feature)})
+        with open('./data/user-features.p', 'wb') as uf:
+            pickle.dump(user_features, uf)
 
         # 提取电影特征
         movie_features = {}
@@ -74,11 +77,13 @@ def main(model_path):
             }
             feature = sess.run(movie_feature, feed_dict=feed)
             movie_features.update({key: value for (key, value) in zip(data.take(0, 1), feature)})
-
-        with open('./data/user-features.p', 'wb') as uf:
-            pickle.dump(user_features, uf)
         with open('./data/movie-features.p', 'wb') as mf:
             pickle.dump(movie_features, mf)
+
+        # 保存损失层的kenel和biase
+        kernel, bais = sess.run([user_movie_fc_kernel, user_movie_fc_bias])
+        with open('./data/user-movie-fc-param.p', 'wb') as params:
+            pickle.dump((kernel, bais), params)
 
 
 if __name__ == '__main__':

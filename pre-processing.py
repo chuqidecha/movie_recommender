@@ -36,7 +36,7 @@ class DLProgress(tqdm):
 def download_ml_1m(save_path):
     """
     Download and extract database
-    :param database_name: Database name
+    :param save_path: save_path
     """
 
     url = 'http://files.grouplens.org/datasets/movielens/ml-1m.zip'
@@ -65,11 +65,11 @@ def download_ml_1m(save_path):
 
 
 def genres_multi_hot(genre_int_map):
-    '''
+    """
     电影类型使用multi-hot编码
-    :param genre_int_map:
+    :param genre_int_map:genre到数字的映射字典
     :return:
-    '''
+    """
 
     def helper(genres):
         genre_int_list = [genre_int_map[genre] for genre in genres.split(b'|')]
@@ -80,15 +80,15 @@ def genres_multi_hot(genre_int_map):
     return helper
 
 
-def title_encode(words_int_map):
-    '''
+def title_encode(word_int_map):
+    """
     将电影Title转成长度为15的数字列表，如果长度小于15则用0填充，大于15则截断
-    :param words_int_map:
+    :param word_int_map:word到数字的映射字段
     :return:
-    '''
+    """
 
     def helper(title):
-        title_words = [words_int_map[word] for word in title.split()]
+        title_words = [word_int_map[word] for word in title.split()]
         if len(title_words) > 15:
             return np.array(title[:15])
         else:
@@ -125,23 +125,23 @@ def load_data(dataset_zip):
             pattern = re.compile(b'^(.*)\((\d+)\)$')
 
             movies['TitleWithoutYear'] = movies['Title'].map(lambda x: pattern.match(x).group(1))
-            # 电影类型转数字字典
-            genres_set = set()
+            # 电影题材Multi-Hot编码
+            genre_set = set()
             for val in movies['Genres'].str.split(b'|'):
-                genres_set.update(val)
+                genre_set.update(val)
 
-            genre_int_map = {val: ii for ii, val in enumerate(genres_set)}
+            genre_int_map = {val: ii for ii, val in enumerate(genre_set)}
 
             movies['GenresMultiHot'] = movies['Genres'].map(genres_multi_hot(genre_int_map))
 
-            # 电影Title转数字字典
-            words_set = set()
+            # 电影Title转数字列表,word的下标从1开始，0作为填充值
+            word_set = set()
             for val in movies['TitleWithoutYear'].str.split():
-                words_set.update(val)
+                word_set.update(val)
 
-            words_int_map = {val: ii for ii, val in enumerate(words_set, start=1)}
+            word_int_map = {val: ii for ii, val in enumerate(word_set, start=1)}
 
-            movies['TitleIndex'] = movies['TitleWithoutYear'].map(title_encode(words_int_map))
+            movies['TitleIndex'] = movies['TitleWithoutYear'].map(title_encode(word_int_map))
 
         # 读取评分数据集
         with zf.open('ml-1m/ratings.dat') as ratings_raw_data:
@@ -155,7 +155,7 @@ def load_data(dataset_zip):
     # 将数据分成X和y两张表
     features, targets = data.drop(['ratings'], axis=1), data[['ratings']]
 
-    return features, targets, age_map, gender_map, genre_int_map, words_int_map, users, movies
+    return features, targets, age_map, gender_map, genre_int_map, word_int_map, users, movies
 
 
 if __name__ == '__main__':

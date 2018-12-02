@@ -1,7 +1,5 @@
 # -*- coding: utf8 -*-
-# @Time     : 11/30/18 10:28 PM
-# @Author   : yinwb
-# @File     : train.py
+
 import logging
 import os
 import pickle
@@ -16,9 +14,9 @@ logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
 BATCH_SIZE = 256
 EPOCH = 5
-DROPOUT_PROB = 0.5
+DROPOUT_KEEP_PROB = 0.5
 LEARNING_RATE_BASE = 0.01
-LEARNING_RAtE_DECAY = 0.99
+LEARNING_RATE_DECAY = 0.99
 SHOW_LOG_STEPS = 100
 SAVE_MODEL_STEPS = 1000
 
@@ -30,7 +28,7 @@ def train(train_X, train_y, save_dir):
     user_job = tf.placeholder(tf.int32, [None, 1], name='user_job')
 
     movie_id = tf.placeholder(tf.int32, [None, 1], name='movie_id')
-    movie_genres = tf.placeholder(tf.float32, [None, 18], name='movie_categories')
+    movie_genres = tf.placeholder(tf.float32, [None, 18], name='movie_genres')
     movie_titles = tf.placeholder(tf.int32, [None, 15], name='movie_titles')
     movie_title_length = tf.placeholder(tf.float32, [None], name='movie_title_length')
     targets = tf.placeholder(tf.int32, [None, 1], name='targets')
@@ -54,7 +52,7 @@ def train(train_X, train_y, save_dir):
         LEARNING_RATE_BASE,
         global_step,
         batch_per_epcho,
-        LEARNING_RAtE_DECAY
+        LEARNING_RATE_DECAY
     )  # 优化损失
     train_op = tf.train.AdamOptimizer(learning_rate).minimize(loss, global_step=global_step)  # cost
 
@@ -83,13 +81,13 @@ def train(train_X, train_y, save_dir):
                     movie_titles: movies.titles,
                     movie_title_length: movies.title_length,
                     targets: ys,
-                    dropout_keep_prob: DROPOUT_PROB}  # dropout_keep
+                    dropout_keep_prob: DROPOUT_KEEP_PROB}
 
                 step, train_loss, summaries, _ = sess.run([global_step, loss, summaries_merged, train_op], feed)
                 train_summary_writer.add_summary(summaries, step)
 
                 if step % SHOW_LOG_STEPS == 0:
-                    show_message = 'Epoch {:>3} Batch {:>4}/{}   train_loss = {:.3f}'.format(epoch_i, step,
+                    show_message = 'Epoch {:>3} Batch {:>4}/{}   train_loss = {:.3f}'.format(epoch_i, batch_i,
                                                                                              batch_per_epcho,
                                                                                              train_loss)
                     logging.info(show_message)
@@ -99,8 +97,6 @@ def train(train_X, train_y, save_dir):
 
 
 if __name__ == '__main__':
-    title_count, title_set, genres2int, features, targets_values, ratings, users, movies, data = pickle.load(
-        open('./data/preprocess.p', mode='rb'))
     with open('./data/data.p', 'rb') as data:
         train_X, train_y, _, _ = pickle.load(data, encoding='utf-8')
     train(train_X, train_y, './data/model/model')

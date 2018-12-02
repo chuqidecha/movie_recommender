@@ -29,8 +29,8 @@ def test(test_X, test_y, model_path):
     dropout_keep_prob = tf.constant(DROPOUT_PROB, dtype=tf.float32, name='dropout_keep_prob')
 
     _, _, predicted = full_network(user_id, user_gender, user_age, user_job, movie_id,
-                             movie_genres, movie_titles, movie_title_length,
-                             dropout_keep_prob)
+                                   movie_genres, movie_titles, movie_title_length,
+                                   dropout_keep_prob)
 
     with tf.name_scope('loss'):
         # MSE损失，将计算值回归到评分
@@ -73,7 +73,7 @@ def test(test_X, test_y, model_path):
             show_message = 'Batch {:>4}/{}   test_loss = {:.3f}'.format(batch_i, batch_per_epcho, test_loss)
             logging.info(show_message)
             avg_loss = avg_loss + test_loss * len(users.id)
-        avg_loss= avg_loss/dataset.size
+        avg_loss = avg_loss / dataset.size
         logging.info('Loss on test is {:.3f}'.format(avg_loss))
 
 

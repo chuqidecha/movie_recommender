@@ -70,8 +70,10 @@ if __name__ == '__main__':
     with open('./data/data.p', 'rb') as data:
         train_X, train_y, _, _ = pickle.load(data, encoding='utf-8')
     dataset = Dataset(train_X.values, train_y.values)
+
     for i in range(2):
-        users, movies, targets = decompression_feature(*dataset.next_batch(2))
+        Xs, ys = dataset.next_batch(2)
+        users, movies = decompression_feature(Xs)
         print(users)
         print(movies)
-        print(targets)
+        print(ys)

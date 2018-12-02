@@ -4,28 +4,24 @@ import tensorflow as tf
 
 # 嵌入矩阵的维度
 EMBED_DIM = 32
-# 用户ID个数
-UID_COUNT = 6041
-# 性别个数
+
+USER_ID_COUNT = 6041
 GENDER_COUNT = 2
-# 年龄类别个数
 AGE_COUNT = 7
-# 职业个数
 JOB_COUNT = 21
 
-# 电影ID个数
 MOVIE_ID_COUNT = 3953
-# 电影类型个数
 MOVIE_GENRES_COUNT = 18
-# 电影名单词个数
-MOVIE_TITLE_COUNT = 5217
+MOVIE_TITLE_WORDS_COUNT = 5217
 
 BATCH_SIZE = 256
+
+LSTM_UNIT_NUM = 128
 
 
 def user_feature_network(user_id, user_gender, user_age, user_job, dropout_keep_prob):
     with tf.variable_scope('user_id_embed'):
-        user_id_embed_matrix = tf.get_variable('id_embed_matrix', [UID_COUNT, EMBED_DIM],
+        user_id_embed_matrix = tf.get_variable('id_embed_matrix', [USER_ID_COUNT, EMBED_DIM],
                                                initializer=tf.truncated_normal_initializer(stddev=0.1))
         user_embed_layer = tf.nn.embedding_lookup(user_id_embed_matrix, user_id, name='id_lookup')
 
@@ -102,24 +98,27 @@ def movie_feature_embed_network(movie_id, movie_genres):
 
 def movie_title_lstm_layer(movie_titles, movie_title_length, dropout_keep_prob):
     with tf.variable_scope('movie_title_embed'):
-        movie_title_embed_matrix = tf.get_variable('title_embed_matrix', [MOVIE_TITLE_COUNT, EMBED_DIM],
+        movie_title_embed_matrix = tf.get_variable('title_embed_matrix', [MOVIE_TITLE_WORDS_COUNT, EMBED_DIM],
                                                    initializer=tf.truncated_normal_initializer(stddev=0.1))
         movie_title_embed_layer = tf.nn.embedding_lookup(movie_title_embed_matrix, movie_titles,
                                                          name='title_lookup')
 
-    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(128, forget_bias=0.0)
+    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(LSTM_UNIT_NUM, forget_bias=0.0)
 
     with tf.name_scope("movie_title_dropout"):
         lstm_cell_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_cell, output_keep_prob=dropout_keep_prob)
+
+        # 根据输入动态决定对应的batch_size大小
         batch_size_ = tf.shape(movie_titles)[0]
         init_state = lstm_cell_dropout.zero_state(batch_size_, dtype=tf.float32)
 
+    # 步长根据标题长度动态变化，dynamic_rnn会将填充长度输出置为0
     lstm_output, final_state = tf.nn.dynamic_rnn(lstm_cell_dropout,
                                                  movie_title_embed_layer,
                                                  sequence_length=movie_title_length,
                                                  initial_state=init_state,
                                                  scope='movie_title_rnn')
-
+    # 根据标题长度计算平均值，除数是标题的真实长度
     with tf.name_scope('movie_title_avg_pool'):
         lstm_output = tf.reduce_sum(lstm_output, 1) / movie_title_length[:, None]
 
@@ -139,9 +138,9 @@ def movie_feature_network(movie_id, movie_genres, movie_titles, movie_title_leng
                                             activation=tf.nn.relu,
                                             kernel_regularizer=tf.nn.l2_loss,
                                             kernel_initializer=tf.truncated_normal_initializer(stddev=0.1),
-                                            name='movie_categories_fc')
+                                            name='movie_genres_fc')
     movie_genres_dropout_layer = tf.layers.dropout(movie_genres_fc_layer, dropout_keep_prob,
-                                                   name='movie_categories_dropout')
+                                                   name='movie_genres_dropout')
 
     # 获取电影名的特征向量
     movie_title_output_layer = movie_title_lstm_layer(movie_titles, movie_title_length, dropout_keep_prob)
