@@ -11,7 +11,7 @@
 4. train.py 网络训练
 5. test.py 模型测试
 6. features.py 使用训练好的模型提取特征
+7. predicted.py 评分预测和相似度计算
 
 ## 详细描述
-[在MovieLens 1M数据集上使用深度学习进行评分预测--模型训练](./doc/movie-recommender-1.md)
-[在MovieLens 1M数据集上使用深度学习进行评分预测--评分预测与推荐](./doc/movie-recommender-2.md)
+[在MovieLens 1M数据集上使用深度学习进行评分预测](./doc/MovieLens.md)

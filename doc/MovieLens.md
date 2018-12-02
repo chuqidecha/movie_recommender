@@ -1,4 +1,4 @@
-# 在MovieLens 1M数据集上使用深度学习进行评分预测和推荐（上）
+# 在MovieLens 1M数据集上使用深度学习进行评分预测
 
 ## MovieLen 1M数据及简介
 MovieLens 1M数据集包含包含6000个用户在近4000部电影上的100万条评分，也包括电影元数据信息和用户属性信息。下载地址为：   
@@ -378,3 +378,203 @@ def full_network(uid, user_gender, user_age, user_job, movie_id, movie_genres, m
 2018-12-02 17:50:04,304 - INFO - Batch  781/782   test_loss = 1.117
 2018-12-02 17:50:04,304 - INFO - Loss on test is 0.843
 ```
+## 特征提取与评分预测
+由于用户属性信息和电影元数据信息都是静态数据，模型训练好之后可以离线计算用户特征、电影特征，然后存储起来供评分预测和推荐使用。
+
+### 特征提取核心代码
+```python
+def main(model_path):
+    user_id = tf.placeholder(tf.int32, [None, 1], name='user_id')
+    user_gender = tf.placeholder(tf.int32, [None, 1], name='user_gender')
+    user_age = tf.placeholder(tf.int32, [None, 1], name='user_age')
+    user_job = tf.placeholder(tf.int32, [None, 1], name='user_job')
+
+    movie_id = tf.placeholder(tf.int32, [None, 1], name='movie_id')
+    movie_genres = tf.placeholder(tf.float32, [None, 18], name='movie_categories')
+    movie_titles = tf.placeholder(tf.int32, [None, 15], name='movie_titles')
+    movie_title_length = tf.placeholder(tf.float32, [None], name='movie_title_length')
+    dropout_keep_prob = tf.constant(DROPOUT_PROB, dtype=tf.float32, name='dropout_keep_prob')
+
+    # 网络定义
+    user_feature, movie_feature, _ = full_network(user_id, user_gender, user_age, user_job, movie_id,
+                                                  movie_genres, movie_titles, movie_title_length,
+                                                  dropout_keep_prob)
+    # 获取损失层的kernal和bias
+    with tf.variable_scope('user_movie_fc', reuse=True):
+        user_movie_fc_kernel = tf.get_variable('kernel')
+        user_movie_fc_bias = tf.get_variable('bias')
+
+    with open('./data/users.p', 'rb') as users:
+        user_Xs = pickle.load(users)
+    with open('./data/movies.p', 'rb') as movies:
+        movie_Xs = pickle.load(movies)
+
+    user_dataset = Dataset(user_Xs.values, shuffle=False)
+    movie_dataset = Dataset(movie_Xs.values, shuffle=False)
+
+    saver = tf.train.Saver()
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        cpkt = tf.train.get_checkpoint_state(model_path)
+        saver.restore(sess, cpkt.model_checkpoint_path)
+
+        # 提取用户特征
+        user_features = {}
+        for batch in range((user_dataset.size + BATCH_SIZE - 1) // BATCH_SIZE):
+            data = user_dataset.next_batch(BATCH_SIZE)
+            feed = {
+                user_id: np.reshape(data.take(0, 1), [len(data), 1]),
+                user_gender: np.reshape(data.take(4, 1), [len(data), 1]),
+                user_age: np.reshape(data.take(5, 1), [len(data), 1]),
+                user_job: np.reshape(data.take(3, 1), [len(data), 1]),
+            }
+            feature = sess.run(user_feature, feed_dict=feed)
+            user_features.update({key: value for (key, value) in zip(data.take(0, 1), feature)})
+        with open('./data/user-features.p', 'wb') as uf:
+            pickle.dump(user_features, uf)
+
+        # 提取电影特征
+        movie_features = {}
+        for batch in range((movie_dataset.size + BATCH_SIZE - 1) // BATCH_SIZE):
+            data = movie_dataset.next_batch(BATCH_SIZE)
+            feed = {
+                movie_id: np.reshape(data.take(0, 1), [len(data), 1]),
+                movie_genres: np.array(list(data.take(4, 1))),
+                movie_titles: np.array(list(data.take(5, 1))),
+                movie_title_length: (np.array(list(data.take(5, 1))) != 0).sum(axis=1)
+            }
+            feature = sess.run(movie_feature, feed_dict=feed)
+            movie_features.update({key: value for (key, value) in zip(data.take(0, 1), feature)})
+        with open('./data/movie-features.p', 'wb') as mf:
+            pickle.dump(movie_features, mf)
+
+        # 保存损失层的kenel和biase
+        kernel, bais = sess.run([user_movie_fc_kernel, user_movie_fc_bias])
+        with open('./data/user-movie-fc-param.p', 'wb') as params:
+            pickle.dump((kernel, bais), params)
+```
+### 评分以及用户、电影相似度计算
+离线存储特征和参数之后，可以直接计算评分而不需要使用Tensorflow去定义网络。除了预测评分之后，也可以通过特征计算最相似的用户和电影。
+
+```python
+import pickle
+
+import numpy as np
+
+
+def relu(x):
+    s = np.where(x < 0, 0, x)
+    return s
+
+
+def predict_rating(user_feature, movie_feature, kernel, bais, activate):
+    """
+    评分函数
+    :param user_feature:
+    :param movie_feature:
+    :param kernel:
+    :param bais:
+    :param activate:
+    :return:
+    """
+    feature = np.concatenate((user_feature, movie_feature))
+    xw_b = np.dot(feature, kernel) + bais
+    output = activate(xw_b)
+    return output
+
+
+def cosine_similiarity(vec_left, vec_right):
+    """
+    余弦相似度
+    :param vec_left:
+    :param vec_right:
+    :return:
+    """
+    num = np.dot(vec_left, vec_right)
+    denom = np.linalg.norm(vec_left) * np.linalg.norm(vec_right)
+    cos = -1 if denom == 0 else num / denom
+    return cos
+
+
+def similar_movie(movie_id, top_k, movie_features):
+    """
+    相似电影
+    :param movie_id:
+    :param top_k:
+    :param movie_features:
+    :return:
+    """
+    cosine_similiarities = {}
+    movie_feature = movie_features[movie_id]
+    for (movie_id_, movie_feature_) in movie_features.items():
+        cosine_similiarities[movie_id_] = cosine_similiarity(movie_feature, movie_feature_)
+    return sorted(cosine_similiarities.items(), key=lambda item: item[1])[-top_k:]
+
+
+def similar_user(user_id, top_k, user_features):
+    """
+    相似用户
+    :param user_id:
+    :param top_k:
+    :param user_features:
+    :return:
+    """
+    cosine_similiarities = {}
+    user_feature = user_features[user_id]
+    for (user_id_, user_feature_) in user_features.items():
+        cosine_similiarities[user_id_] = cosine_similiarity(user_feature, user_feature_)
+    return sorted(cosine_similiarities.items(), key=lambda item: item[1])[-top_k:]
+
+if __name__ == '__main__':
+    with open('./data/user-features.p', 'rb') as uf:
+        user_features = pickle.load(uf, encoding='utf-8')
+
+    with open('./data/movie-features.p', 'rb') as mf:
+        movie_features = pickle.load(mf)
+
+    with open('./data/user-movie-fc-param.p', 'rb') as params:
+        kernel, bais = pickle.load(params, encoding='utf-8')
+
+    with open('./data/movies.p', 'rb') as mv:
+        movies = pickle.load(mv, encoding='utf-8')
+    with open('./data/users.p', 'rb') as usr:
+        users = pickle.load(usr, encoding='utf-8')
+
+    rating1 = predict_rating(user_features[1], movie_features[1193], kernel, bais, relu)
+    print('UserID={:>4},MovieID={:>4},Rating={:.3f}'.format(1, 1193, rating1[0]))
+    rating2 = predict_rating(user_features[5900], movie_features[3100], kernel, bais, relu)
+    print('UserID={:>4},MovieID={:>4},Rating={:.3f}'.format(234, 1401, rating2[0]))
+
+    similar_users = similar_user(5900, 5, user_features)
+    print('These Users are similar to {}'.format(str(users[users['UserID'] == 1642].to_dict('records'))))
+    for user in similar_users:
+        print(users[users['UserID'] == user[0]].to_dict('records')[0])
+
+    similar_movies = similar_movie(1401, 5, movie_features)
+    print('These Movie are similar to {}'.format(
+        str(movies[movies['MovieID'] == 1401][['MovieID', 'Title', 'Genres']].to_dict('records'))))
+    for movie in similar_movies:
+        print(movies[movies['MovieID'] == movie[0]][['MovieID', 'Title', 'Genres']].to_dict('records')[0])
+```
+输出结果：
+```
+UserID=   1,MovieID=1193,Rating=4.658
+UserID= 234,MovieID=1401,Rating=3.602
+These Users are similar to [{'UserID': 1642, 'Gender': b'M', 'Age': 50, 'JobID': 13, 'GenderIndex': 1, 'AgeIndex': 3}]
+{'UserID': 4404, 'Gender': b'M', 'Age': 25, 'JobID': 1, 'GenderIndex': 1, 'AgeIndex': 6}
+{'UserID': 2092, 'Gender': b'M', 'Age': 56, 'JobID': 1, 'GenderIndex': 1, 'AgeIndex': 5}
+{'UserID': 3014, 'Gender': b'M', 'Age': 35, 'JobID': 7, 'GenderIndex': 1, 'AgeIndex': 1}
+{'UserID': 5038, 'Gender': b'M', 'Age': 25, 'JobID': 20, 'GenderIndex': 1, 'AgeIndex': 6}
+{'UserID': 2672, 'Gender': b'M', 'Age': 35, 'JobID': 7, 'GenderIndex': 1, 'AgeIndex': 1}
+These Movie are similar to [{'MovieID': 1401, 'Title': b'Ghosts of Mississippi (1996)', 'Genres': b'Drama'}]
+{'MovieID': 3159, 'Title': b'Fantasia 2000 (1999)', 'Genres': b"Animation|Children's|Musical"}
+{'MovieID': 1809, 'Title': b'Hana-bi (1997)', 'Genres': b'Comedy|Crime|Drama'}
+{'MovieID': 2071, 'Title': b'And the Band Played On (1993)', 'Genres': b'Drama'}
+{'MovieID': 3075, 'Title': b'Repulsion (1965)', 'Genres': b'Thriller'}
+{'MovieID': 365, 'Title': b'Little Buddha (1993)', 'Genres': b'Drama'}
+```
+## 下一步工作
+1. 使用更多的特征，进一步降低MSE
+    - 用户属性数据中的Zip-code可以标识用户所处地区，不同地域的人可能有不同的喜好，应该是一个有用处的特征。
+    - 时间特征：电影名中的上映时间，不同时代的电影，评分可能略有差异；用户评分时间距电影上映时间可能也会影响评分。
+2. 使用得到的特征做电影推荐

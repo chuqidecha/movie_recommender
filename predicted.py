@@ -26,6 +26,12 @@ def predict_rating(user_feature, movie_feature, kernel, bais, activate):
 
 
 def cosine_similiarity(vec_left, vec_right):
+    """
+    余弦相似度
+    :param vec_left: 
+    :param vec_right: 
+    :return: 
+    """
     num = np.dot(vec_left, vec_right)
     denom = np.linalg.norm(vec_left) * np.linalg.norm(vec_right)
     cos = -1 if denom == 0 else num / denom
@@ -33,6 +39,13 @@ def cosine_similiarity(vec_left, vec_right):
 
 
 def similar_movie(movie_id, top_k, movie_features):
+    """
+    相似电影
+    :param movie_id: 
+    :param top_k: 
+    :param movie_features: 
+    :return: 
+    """
     cosine_similiarities = {}
     movie_feature = movie_features[movie_id]
     for (movie_id_, movie_feature_) in movie_features.items():
@@ -41,17 +54,18 @@ def similar_movie(movie_id, top_k, movie_features):
 
 
 def similar_user(user_id, top_k, user_features):
+    """
+    相似用户
+    :param user_id: 
+    :param top_k: 
+    :param user_features: 
+    :return: 
+    """
     cosine_similiarities = {}
     user_feature = user_features[user_id]
     for (user_id_, user_feature_) in user_features.items():
         cosine_similiarities[user_id_] = cosine_similiarity(user_feature, user_feature_)
     return sorted(cosine_similiarities.items(), key=lambda item: item[1])[-top_k:]
-
-
-def str_user(user):
-    return {
-        'UserID={:>3}::Gender={}::Age={:>2}::JobID={:>2}'.format(user['UserID'].tolist()[0], user['Gender'].tolist()[0],
-                                                                 user['Age'].tolist()[0], user['JobID'].tolist()[0])}
 
 
 if __name__ == '__main__':
